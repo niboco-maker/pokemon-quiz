@@ -73,49 +73,48 @@ function norm(s){return (s||"").trim().replace(/\s/g,"").replace(/　/g,"").toLo
 function updateStats(){$("correct").textContent=correct;$("answered").textContent=answered;$("accuracy").textContent=answered?Math.round(correct/answered*100)+"%":"—"}
 function setStatus(s){$("status").textContent=s}
 async function loadRegion(){
- const id=$("region").value;locked=false;current=null;questions=[];
+ const id=$("region").value;
+ locked=false;current=null;questions=[];
  $("pokemon").hidden=true;$("imageMessage").hidden=false;$("imageMessage").textContent="図鑑データを読み込み中…";
  $("feedback").textContent="";$("hintText").textContent="";$("next").disabled=true;$("questionCount").textContent="問題 —";
- $("load").disabled=true;setStatus("図鑑データを取得しています。少しお待ちください…");
+ $("load").disabled=true;setStatus("図鑑データを取得しています…");
  try{
-  const r=await fetch(`https://pokeapi.co/api/v2/pokedex/${id}/`);
-  if(!r.ok)throw Error("図鑑データを取得できませんでした");
-  const d=await r.json();
-  const entries=d.pokemon_entries||[];
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(),15000);
+  let response;
+  try { response=await fetch(`https://pokeapi.co/api/v2/pokedex/${id}/`,{signal:controller.signal,cache:"no-store"}); }
+  finally { clearTimeout(timeout); }
+  if(!response.ok)throw Error(`図鑑データの取得に失敗しました（HTTP ${response.status}）`);
+  const data=await response.json();
   const unique=new Map();
-  entries.forEach(e=>{const s=e.pokemon_species;if(s&&!unique.has(s.name))unique.set(s.name,{name:s.name,url:s.url,jp:"",id:null})});
+  (data.pokemon_entries||[]).forEach(e=>{
+   const species=e.pokemon_species;
+   if(!species||unique.has(species.name))return;
+   const match=species.url.match(/\/(\d+)\/?$/);
+   if(match)unique.set(species.name,{name:species.name,jp:species.name,id:Number(match[1]),url:species.url});
+  });
   const list=[...unique.values()];
-  // Species URL already contains the National Pokédex ID, so the quiz can still
-  // proceed if the API is slow or blocks some name requests.
-  list.forEach(p=>{const m=p.url.match(/\\/(\\d+)\\/?$/);if(m)p.id=Number(m[1]);p.jp=p.name});
-  setStatus(`${dexInfo[id].label}の名前を取得中… (${list.length}匹)`);
-  let done=0;
-  // Keep concurrency low and retry transient API errors to avoid rate limiting.
-  for(let i=0;i<list.length;i+=4){
-   await Promise.all(list.slice(i,i+4).map(async p=>{
-    for(let attempt=0;attempt<3;attempt++){
-     try{
-      const response=await fetch(p.url);
-      if(!response.ok)throw Error(`HTTP ${response.status}`);
-      const x=await response.json();
-      const ja=(x.names||[]).find(n=>n.language.name==="ja-Hrkt")||(x.names||[]).find(n=>n.language.name==="ja");
-      if(ja)p.jp=ja.name;
-      break;
-     }catch(e){
-      if(attempt===2) console.warn("名前取得をスキップ:",p.name,e);
-      else await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));
-     }
-    }
-   }));
-   done=Math.min(i+4,list.length);setStatus(`名前を取得中… ${done}/${list.length}`);
-  }
-  questions=list.filter(p=>p.id).sort(()=>Math.random()-.5);
-  if(!questions.length)throw Error("問題データがありませんでした");
+  if(!list.length)throw Error("図鑑データが空でした");
+  questions=list.sort(()=>Math.random()-.5);
   renderProgress();renderReviews();nextQuestion();
-  setStatus(`${dexInfo[id].label}を読み込みました。画像の表示にはインターネット接続が必要です。`);
+  setStatus(`${dexInfo[id].label}を読み込みました。日本語名を順次取得します。`);
+  (async()=>{
+   for(let i=0;i<list.length;i+=3){
+    await Promise.all(list.slice(i,i+3).map(async p=>{
+     try{
+      const r=await fetch(p.url);
+      if(!r.ok)return;
+      const species=await r.json();
+      const ja=(species.names||[]).find(n=>n.language.name==="ja-Hrkt")||(species.names||[]).find(n=>n.language.name==="ja");
+      if(ja)p.jp=ja.name;
+     }catch(e){}
+    }));
+   }
+   setStatus(`${dexInfo[id].label}の読み込みが完了しました。`);
+  })();
  }catch(e){
-  $("imageMessage").textContent="読み込みに失敗しました。インターネット接続を確認して再度お試しください。";
-  setStatus("読み込みに失敗しました："+e.message+"。Wi-Fi接続を確認し、ChromeまたはEdgeで開き直してください。");
+  $("imageMessage").textContent="読み込みに失敗しました。ネット接続を確認して「地方を読み込む」をもう一度押してください。";
+  setStatus("読み込みエラー："+(e.name==="AbortError"?"通信がタイムアウトしました":e.message));
  }finally{$("load").disabled=false}
 }
 function nextQuestion(){
