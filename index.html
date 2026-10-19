@@ -69,7 +69,10 @@ let questions=[],current=null,locked=false,correct=0,answered=0;
 const progress=readStore("pokeQuizProgress",{}), reviews=readStore("pokeQuizReviews",{});
 function readStore(k,f){try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}}
 function save(){try{localStorage.setItem("pokeQuizProgress",JSON.stringify(progress));localStorage.setItem("pokeQuizReviews",JSON.stringify(reviews))}catch{}}
-function norm(s){return (s||"").trim().replace(/\s/g,"").replace(/　/g,"").toLowerCase()}
+function norm(s){
+ return (s||"").normalize("NFKC").trim().replace(/\s/g,"").replace(/　/g,"").toLowerCase()
+  .replace(/[ぁ-ゖ]/g,ch=>String.fromCharCode(ch.charCodeAt(0)+0x60));
+}
 function updateStats(){$("correct").textContent=correct;$("answered").textContent=answered;$("accuracy").textContent=answered?Math.round(correct/answered*100)+"%":"—"}
 function setStatus(s){$("status").textContent=s}
 async function loadRegion(){
