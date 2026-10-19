@@ -70,8 +70,9 @@ const progress=readStore("pokeQuizProgress",{}), reviews=readStore("pokeQuizRevi
 function readStore(k,f){try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}}
 function save(){try{localStorage.setItem("pokeQuizProgress",JSON.stringify(progress));localStorage.setItem("pokeQuizReviews",JSON.stringify(reviews))}catch{}}
 function norm(s){
- return (s||"").normalize("NFKC").trim().replace(/\s/g,"").replace(/　/g,"").toLowerCase()
-  .replace(/[ぁ-ゖ]/g,ch=>String.fromCharCode(ch.charCodeAt(0)+0x60));
+ return (s||"").normalize("NFKC").toLowerCase().trim()
+  .replace(/[\\s\\u3000・･]/g,"")
+  .replace(/[ァ-ヺ]/g,ch=>String.fromCharCode(ch.charCodeAt(0)-0x60));
 }
 function updateStats(){$("correct").textContent=correct;$("answered").textContent=answered;$("accuracy").textContent=answered?Math.round(correct/answered*100)+"%":"—"}
 function setStatus(s){$("status").textContent=s}
@@ -130,12 +131,23 @@ function nextQuestion(){
  $("answer").value="";$("answer").focus();$("feedback").textContent="";$("feedback").className="";$("hintText").textContent="";$("next").disabled=true;
  $("questionCount").textContent=`問題 ${Object.keys(progress[$("region").value]||{}).length+1}・残り ${questions.length}`;
 }
-function evaluate(fromShow=false){
+async function evaluate(fromShow=false){
  if(!current||locked)return;
  const guess=norm($("answer").value);
  if(!fromShow&&!guess){$("feedback").textContent="名前を入力してください。";$("feedback").className="bad";return}
+ // Japanese names may still be loading in the background. Fetch this Pokémon's name before judging.
+ if(!fromShow && current.jp===current.name && current.url){
+  try{
+   const r=await fetch(current.url);
+   if(r.ok){
+    const species=await r.json();
+    const ja=(species.names||[]).find(n=>n.language.name==="ja-Hrkt")||(species.names||[]).find(n=>n.language.name==="ja");
+    if(ja)current.jp=ja.name;
+   }
+  }catch(e){}
+ }
  answered++;
- const ok=!fromShow&&[current.jp,current.name].some(n=>norm(n)===guess);
+ const ok=!fromShow&&norm(current.jp)===guess;
  const rid=$("region").value;progress[rid]=progress[rid]||{};
  reviews[rid]=reviews[rid]||{};
  if(ok){
