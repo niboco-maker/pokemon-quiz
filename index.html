@@ -33,7 +33,7 @@ details{margin-top:18px;border-top:1px solid #e4e9f1;padding-top:14px}ul{padding
 <option value="original-unova">イッシュ</option><option value="kalos-central">カロス（中央）</option>
 <option value="original-alola">アローラ</option><option value="galar">ガラル</option><option value="paldea">パルデア</option>
 </select>
-<button id="load">地方を読み込む</button>
+
 </div>
 <div class="stats">
 <div class="stat">正解数<strong id="correct">0</strong></div>
@@ -77,7 +77,7 @@ async function loadRegion(){
  locked=false;current=null;questions=[];
  $("pokemon").hidden=true;$("imageMessage").hidden=false;$("imageMessage").textContent="図鑑データを読み込み中…";
  $("feedback").textContent="";$("hintText").textContent="";$("next").disabled=true;$("questionCount").textContent="問題 —";
- $("load").disabled=true;setStatus("図鑑データを取得しています…");
+ setStatus("図鑑データを取得しています…");
  try{
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(),15000);
@@ -115,7 +115,7 @@ async function loadRegion(){
  }catch(e){
   $("imageMessage").textContent="読み込みに失敗しました。ネット接続を確認して「地方を読み込む」をもう一度押してください。";
   setStatus("読み込みエラー："+(e.name==="AbortError"?"通信がタイムアウトしました":e.message));
- }finally{$("load").disabled=false}
+ }finally{}
 }
 function nextQuestion(){
  if(!questions.length)return;
@@ -155,7 +155,7 @@ function renderReviews(){
  $("reviewList").innerHTML=vals.length?`<ul>${vals.map(p=>`<li>${escapeHtml(p.name)} (No. ${p.id})</li>`).join("")}</ul>`:"まだ間違えたポケモンはいません。";
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-$("load").onclick=loadRegion;
+$("region").addEventListener("change",loadRegion);
 $("submit").onclick=()=>evaluate();
 $("answer").addEventListener("keydown",e=>{if(e.key==="Enter")evaluate()});
 $("next").onclick=nextQuestion;
