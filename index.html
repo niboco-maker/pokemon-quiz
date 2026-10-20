@@ -70,6 +70,9 @@ const dexInfo = {
   paldea:{label:"パルデア",total:400,endpoint:"paldea"}
 };
 const $=id=>document.getElementById(id);
+const regionOrder=Object.keys(dexInfo);
+const regionTotals={};
+const regionSpeciesIds={};
 function readStore(k,f){try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}}
 let questions=[],current=null,locked=false,correct=0,answered=0,loadToken=0,activeRegionId=null;
 const progress=readStore("pokeQuizProgress",{}), reviews=readStore("pokeQuizReviews",{}), nameCache=readStore("pokeQuizJapaneseNames",{});
@@ -118,26 +121,49 @@ async function loadRegion(){
   // Fail closed if the API response is not the Pokédex that was requested.
   if(data.name!==info.endpoint)throw Error(`取得した図鑑が一致しません（要求：${info.endpoint}／応答：${data.name||"不明"}）`);
   if(!Array.isArray(data.pokemon_entries))throw Error("図鑑データの形式が正しくありません");
+  // 選択地方より前の地方図鑑に載っている種を集め、重複するポケモンを除外する。
+  const regionIndex=regionOrder.indexOf(id);
+  const earlierRegions=regionOrder.slice(0,regionIndex);
+  const earlierDexResponses=await Promise.all(earlierRegions.map(async earlierId=>{
+   const earlierInfo=dexInfo[earlierId];
+   const r=await fetch(`https://pokeapi.co/api/v2/pokedex/${earlierInfo.endpoint}/`);
+   if(!r.ok)throw Error(`${earlierInfo.label}の図鑑データを取得できませんでした（HTTP ${r.status}）`);
+   const d=await r.json();
+   if(d.name!==earlierInfo.endpoint||!Array.isArray(d.pokemon_entries))throw Error(`${earlierInfo.label}の図鑑データが正しくありません`);
+   return d.pokemon_entries;
+  }));
+  if(token!==loadToken||$("region").value!==id)return;
+  const previouslyListed=new Set();
+  for(const entries of earlierDexResponses){
+   for(const entry of entries){
+    const match=entry.pokemon_species?.url?.match(/\/(\d+)\/?$/);
+    if(match)previouslyListed.add(Number(match[1]));
+   }
+  }
   const unique=new Map();
   for(const entry of data.pokemon_entries){
    const species=entry.pokemon_species;
    if(!species||unique.has(species.name))continue;
    const match=species.url.match(/\/(\d+)\/?$/);
    if(!match)continue;
+   const nationalId=Number(match[1]);
+   if(previouslyListed.has(nationalId))continue;
    unique.set(species.name,{
     name:species.name,
     jp:nameCache[species.name]||null,
-    id:Number(match[1]),
+    id:nationalId,
     url:species.url,
     regionId:id,
     dexNumber:entry.entry_number
    });
   }
   const list=[...unique.values()];
-  if(!list.length)throw Error("図鑑データが空でした");
+  if(!list.length)throw Error("過去の地方のポケモンを除いた結果、出題対象がありませんでした");
+  regionTotals[id]=list.length;
+  regionSpeciesIds[id]=new Set(list.map(p=>p.id));
   if(token!==loadToken||$("region").value!==id)return;
   questions=shuffle(list);renderProgress();renderReviews();
-  setStatus(`${info.label}の図鑑 ${list.length}匹を読み込みました。日本語名を確認しています…`);
+  setStatus(`${info.label}の新規出題対象 ${list.length}匹を読み込みました（以前の地方に登場したポケモンは除外）。日本語名を確認しています…`);
   nextQuestion();
   // Background name requests only mutate the list belonging to this still-active load.
   preloadJapaneseNames(list,token,id);
@@ -219,8 +245,9 @@ async function evaluate(fromShow=false){
 }
 function renderProgress(){
  $("progressList").innerHTML=Object.entries(dexInfo).map(([id,info])=>{
-  const count=Object.keys(progress[id]||{}).length,pct=Math.min(100,count/info.total*100);
-  return `<div class="progress"><div class="progress-label"><span>${info.label}</span><span>${count}/${info.total}（${Math.round(pct)}%）</span></div><div class="bar"><span style="width:${pct}%"></span></div></div>`;
+  const total=regionTotals[id]||info.total;
+  const count=Object.keys(progress[id]||{}).filter(pid=>!regionSpeciesIds[id]||regionSpeciesIds[id].has(Number(pid))).length,pct=total?Math.min(100,count/total*100):0;
+  return `<div class="progress"><div class="progress-label"><span>${info.label}</span><span>${count}/${total}（${Math.round(pct)}%）</span></div><div class="bar"><span style="width:${pct}%"></span></div></div>`;
  }).join("");
 }
 function renderReviews(){
