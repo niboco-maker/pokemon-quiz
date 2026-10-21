@@ -271,7 +271,7 @@ async function evaluate(fromShow=false){
  if(target!==current||token!==loadToken||regionId!==$("region").value||regionId!==activeRegionId)return;
  if(!hasJapaneseName){$("feedback").textContent="日本語名を取得できませんでした。通信を確認して、もう一度回答してください。";$("feedback").className="bad";return}
  answered++;
- const ok=!fromShow&&norm(target.jp)===guess;
+ const ok=!fromShow&&(norm(target.jp)===guess||(target.isRegionalForm&&target.baseJapaneseName&&norm(target.baseJapaneseName)===guess));
  progress[regionId]=progress[regionId]||{};reviews[regionId]=reviews[regionId]||{};
  if(ok){
   correct++;progress[regionId][target.progressId||target.id]=true;delete reviews[regionId][target.progressId||target.id];
