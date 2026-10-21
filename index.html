@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ポケモン地方図鑑クイズ（地方切替修正版）</title>
+<title>ポケモン地方図鑑クイズ（ガラル図鑑番号修正版）</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Yu Gothic",Meiryo,sans-serif;color:#202633;background:#f4f7fb}
 body{margin:0;padding:20px}.app{max-width:900px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 8px 30px #15294b18}
@@ -153,6 +153,9 @@ async function loadRegion(){
    const match=species.url.match(/\/(\d+)\/?$/);
    if(!match)continue;
    const nationalId=Number(match[1]);
+   // ガラル地方の通常の出題対象は全国図鑑No.810〜898に限定する。
+   // それ以前のポケモンのガラルのすがたは、下のリージョンフォーム処理で別問題として追加する。
+   if(id==="galar"&&(nationalId<810||nationalId>898))continue;
    if(previouslyListed.has(nationalId))continue;
    unique.set(species.name,{
     name:species.name,
