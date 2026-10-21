@@ -16,7 +16,6 @@ button:disabled{opacity:.45;cursor:not-allowed}.stat{background:#f0f5fc;padding:
 figure{margin:0;background:#f3f6fb;border-radius:16px;display:grid;place-items:center;min-height:270px}
 figure img{width:100%;max-width:300px;aspect-ratio:1;object-fit:contain;image-rendering:auto}
 #feedback{min-height:1.6em;font-weight:700;margin:12px 0}#feedback.good{color:#167245}#feedback.bad{color:#b43a36}
-.progress{margin:8px 0}.progress-label{display:flex;justify-content:space-between;font-size:.92rem}.bar{height:9px;background:#e8edf4;border-radius:99px;overflow:hidden}.bar span{display:block;height:100%;background:#3a82d5;width:0}
 details{margin-top:18px;border-top:1px solid #e4e9f1;padding-top:14px}ul{padding-left:22px}.small{font-size:.9rem;color:#687386}
 @media(max-width:650px){.layout{grid-template-columns:1fr}figure{min-height:230px}.app{padding:16px}body{padding:10px}}
 </style>
@@ -53,8 +52,7 @@ details{margin-top:18px;border-top:1px solid #e4e9f1;padding-top:14px}ul{padding
 <p id="hintText" class="small"></p>
 </section>
 </div>
-<details open><summary><strong>地方ごとの図鑑完成率</strong></summary><div id="progressList" class="small">読み込み後に表示されます。</div></details>
-<details><summary><strong>間違えたポケモンの復習</strong></summary><div id="reviewList">まだ間違えたポケモンはいません。</div><button id="clearReview">この地方の復習リストを消去</button></details>
+<details><summary><strong>間違えたポケモンの復習</strong></summary><div id="reviewList">まだ間違えたポケモンはいません。</div><div class="controls"><button id="startReview" class="primary">間違えた問題を復習クイズ</button><button id="clearReview">この地方の復習リストを消去</button></div><p id="reviewStatus" class="small"></p></details>
 <p id="status" class="small">初回はインターネット接続が必要です。正解履歴はこのブラウザーに保存されます。</p>
 </main>
 <script>
@@ -80,7 +78,7 @@ const regionalFormGroups={
   paldea: {suffix:"-paldea", label:"パルデアのすがた"}
 };
 function readStore(k,f){try{return JSON.parse(localStorage.getItem(k))||f}catch{return f}}
-let questions=[],current=null,locked=false,correct=0,answered=0,loadToken=0,activeRegionId=null;
+let questions=[],current=null,locked=false,correct=0,answered=0,loadToken=0,activeRegionId=null,reviewMode=false;
 const progress=readStore("pokeQuizProgress",{}), reviews=readStore("pokeQuizReviews",{}), nameCache=readStore("pokeQuizJapaneseNames",{});
 function save(){try{localStorage.setItem("pokeQuizProgress",JSON.stringify(progress));localStorage.setItem("pokeQuizReviews",JSON.stringify(reviews));localStorage.setItem("pokeQuizJapaneseNames",JSON.stringify(nameCache))}catch{}}
 function norm(s){
@@ -108,7 +106,7 @@ async function loadRegion(){
  const token=++loadToken;
  const id=$("region").value;
  const info=dexInfo[id];
- activeRegionId=id;current=null;questions=[];locked=false;
+ activeRegionId=id;current=null;questions=[];locked=false;reviewMode=false;
  $("pokemon").hidden=true;$("pokemon").removeAttribute("src");
  $("imageMessage").hidden=false;$("imageMessage").textContent="図鑑データを読み込み中…";
  $("feedback").textContent="";$("feedback").className="";$("hintText").textContent="";
@@ -201,7 +199,7 @@ async function loadRegion(){
   regionTotals[id]=list.length;
   regionSpeciesIds[id]=new Set(list.map(p=>p.id));
   if(token!==loadToken||$("region").value!==id)return;
-  questions=shuffle(list);renderProgress();renderReviews();
+  questions=shuffle(list);reviewMode=false;renderReviews();
   setStatus(`${info.label}の新規出題対象 ${list.length}匹を読み込みました（以前の地方に登場したポケモンは除外）。日本語名を確認しています…`);
   nextQuestion();
   // Background name requests only mutate the list belonging to this still-active load.
@@ -245,7 +243,7 @@ function nextQuestion(){
  $("pokemon").onerror=()=>{if(current===target&&target.regionId===activeRegionId){$("imageMessage").hidden=false;$("imageMessage").textContent="画像を表示できませんでした"}};
  $("pokemon").src=`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${target.id}.png`;
  $("answer").value="";$("feedback").textContent="";$("feedback").className="";$("hintText").textContent="";$("next").disabled=true;
- $("questionCount").textContent=`問題 ${Object.keys(progress[activeRegionId]||{}).length+1}・残り ${questions.length}`;
+ $("questionCount").textContent=`問題 ${answered+1}・残り ${questions.length}`;
  setQuestionControls(true);$("answer").focus();
 }
 async function ensureJapaneseName(p,token){
@@ -274,24 +272,33 @@ async function evaluate(fromShow=false){
  const ok=!fromShow&&(norm(target.jp)===guess||(target.isRegionalForm&&target.baseJapaneseName&&norm(target.baseJapaneseName)===guess));
  progress[regionId]=progress[regionId]||{};reviews[regionId]=reviews[regionId]||{};
  if(ok){
-  correct++;progress[regionId][target.progressId||target.id]=true;delete reviews[regionId][target.progressId||target.id];
+  correct++;delete reviews[regionId][target.progressId||target.id];
   $("feedback").textContent=`正解！ ${target.jp}`;$("feedback").className="good";
  }else{
-  reviews[regionId][target.progressId||target.id]={name:target.jp,id:target.id};
+  reviews[regionId][target.progressId||target.id]=makeReviewRecord(target);
   $("feedback").textContent=`${fromShow?"答え：":"不正解。答えは"} ${target.jp}`;$("feedback").className="bad";
  }
- locked=true;$("next").disabled=false;updateStats();save();renderProgress();renderReviews();
+ locked=true;$("next").disabled=false;updateStats();save();renderReviews();
 }
-function renderProgress(){
- $("progressList").innerHTML=Object.entries(dexInfo).map(([id,info])=>{
-  const total=regionTotals[id]||info.total;
-  const count=Object.keys(progress[id]||{}).length,pct=total?Math.min(100,count/total*100):0;
-  return `<div class="progress"><div class="progress-label"><span>${info.label}</span><span>${count}/${total}（${Math.round(pct)}%）</span></div><div class="bar"><span style="width:${pct}%"></span></div></div>`;
- }).join("");
+function makeReviewRecord(p){
+ return {name:p.jp||p.name,jp:p.jp||null,id:p.id,url:p.url||null,regionId:p.regionId||activeRegionId,
+  isRegionalForm:!!p.isRegionalForm,baseJapaneseName:p.baseJapaneseName||null,formLabel:p.formLabel||null,
+  progressId:p.progressId||p.id,nameKey:p.name||String(p.id)};
 }
 function renderReviews(){
  const list=reviews[$("region").value]||{},vals=Object.values(list);
- $("reviewList").innerHTML=vals.length?`<ul>${vals.map(p=>`<li>${escapeHtml(p.name)} (No. ${p.id})</li>`).join("")}</ul>`:"まだ間違えたポケモンはいません。";
+ $("reviewList").innerHTML=vals.length?`<ul>${vals.map(p=>`<li>${escapeHtml(p.name||p.jp||p.nameKey||"ポケモン")} (No. ${p.id})</li>`).join("")}</ul>`:"まだ間違えたポケモンはいません。";
+ $("startReview").disabled=!vals.length;
+ $("reviewStatus").textContent=vals.length?`復習対象：${vals.length}問`:"復習できる問題はありません。まず通常クイズに挑戦してください。";
+}
+function startReviewQuiz(){
+ const rid=$("region").value, list=Object.entries(reviews[rid]||{});
+ if(!list.length){renderReviews();return;}
+ reviewMode=true;activeRegionId=rid;current=null;locked=false;
+ questions=shuffle(list.map(([key,p])=>({...p,regionId:rid,progressId:p.progressId||key,jp:p.jp||p.name||null,name:p.nameKey||p.name||String(p.id)})));
+ $("feedback").textContent="";$("feedback").className="";$("hintText").textContent="";
+ setStatus(`${dexInfo[rid].label}の間違えた問題を復習中です。正解した問題は復習リストから外れます。`);
+ nextQuestion();
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 $("region").addEventListener("change",()=>{renderReviews();loadRegion()});
@@ -301,7 +308,7 @@ $("next").addEventListener("click",nextQuestion);
 $("skip").addEventListener("click",()=>{
  if(!current||locked||current.regionId!==$("region").value)return;
  const p=current,rid=p.regionId;reviews[rid]=reviews[rid]||{};
- reviews[rid][p.progressId||p.id]={name:p.jp||p.name,id:p.id};save();renderReviews();nextQuestion();
+ reviews[rid][p.progressId||p.id]=makeReviewRecord(p);save();renderReviews();nextQuestion();
 });
 $("show").addEventListener("click",()=>evaluate(true));
 $("hint").addEventListener("click",async()=>{
@@ -312,7 +319,8 @@ $("hint").addEventListener("click",async()=>{
  $("hintText").textContent=`ヒント：${target.jp.slice(0,1)} から始まる、${[...target.jp].length}文字の名前です。`;
 });
 $("clearReview").addEventListener("click",()=>{reviews[$("region").value]={};save();renderReviews()});
-renderProgress();renderReviews();updateStats();
+$("startReview").addEventListener("click",startReviewQuiz);
+renderReviews();updateStats();
 loadRegion();
 </script>
 </body>
