@@ -164,6 +164,22 @@ async function loadRegion(){
     dexNumber:entry.entry_number
    });
   }
+  // ガラル地方の追加コンテンツ図鑑に収録される全国図鑑No.891〜898は、
+  // PokeAPIの通常の galar 図鑑エンドポイントに含まれない場合があるため明示的に追加する。
+  if(id==="galar"){
+   const extraSpecies=await Promise.all(Array.from({length:8},(_,i)=>891+i).map(async nationalId=>{
+    try{
+     const r=await fetch(`https://pokeapi.co/api/v2/pokemon-species/${nationalId}/`);
+     if(!r.ok)return null;
+     const species=await r.json();
+     const name=species.name;
+     const pokemonResponse=await fetch(`https://pokeapi.co/api/v2/pokemon/${nationalId}/`);
+     const pokemon=pokemonResponse.ok?await pokemonResponse.json():null;
+     return {name,jp:getJapaneseName(species),id:pokemon?.id||nationalId,url:species.url,regionId:id,dexNumber:nationalId};
+    }catch(e){return null}
+   }));
+   for(const p of extraSpecies){if(p&&p.jp)unique.set(p.name,p);}
+  }
   // 種としては過去地方に登場していても、選択地方で初登場したリージョンフォームは追加する。
   const formGroup=regionalFormGroups[id];
   if(formGroup){
@@ -192,6 +208,35 @@ async function loadRegion(){
     // フォームを独立した問題として管理するため、通常種のIDと衝突しないキーを作る。
     form.progressId=`form-${form.name}`;
     unique.set(form.progressId,form);
+   }
+  }
+  // ガラル地方では、通常の姿に加えてキョダイマックスの姿も別問題として出題する。
+  // 以前の地方で登場した種であっても、ガラルで追加されたキョダイマックスの姿は対象に含める。
+  if(id==="galar"){
+   const pokemonResponse=await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000");
+   if(!pokemonResponse.ok)throw Error("キョダイマックスの一覧を取得できませんでした");
+   const pokemonData=await pokemonResponse.json();
+   const gmaxEntries=(pokemonData.results||[]).filter(x=>x.name.endsWith("-gmax"));
+   const gmaxDetails=await Promise.all(gmaxEntries.map(async x=>{
+    try{
+     const r=await fetch(x.url); if(!r.ok)return null;
+     const p=await r.json();
+     const speciesUrl=p.species?.url; const match=speciesUrl?.match(/\/(\d+)\/?$/);
+     if(!match)return null;
+     return {name:x.name,id:p.id,speciesId:Number(match[1]),url:speciesUrl,regionId:id,isGigantamax:true,formLabel:"キョダイマックス"};
+    }catch(e){return null}
+   }));
+   for(const form of gmaxDetails){
+    if(!form)continue;
+    try{
+     const r=await fetch(form.url); if(!r.ok)continue;
+     const species=await r.json(); const baseName=getJapaneseName(species);
+     if(!baseName)continue;
+     form.jp=`${baseName}（キョダイマックス）`;
+     form.baseJapaneseName=baseName;
+     form.progressId=`form-${form.name}`;
+     unique.set(form.progressId,form);
+    }catch(e){}
    }
   }
   const list=[...unique.values()];
@@ -269,7 +314,7 @@ async function evaluate(fromShow=false){
  if(target!==current||token!==loadToken||regionId!==$("region").value||regionId!==activeRegionId)return;
  if(!hasJapaneseName){$("feedback").textContent="日本語名を取得できませんでした。通信を確認して、もう一度回答してください。";$("feedback").className="bad";return}
  answered++;
- const ok=!fromShow&&(norm(target.jp)===guess||(target.isRegionalForm&&target.baseJapaneseName&&norm(target.baseJapaneseName)===guess));
+ const ok=!fromShow&&(norm(target.jp)===guess||((target.isRegionalForm||target.isGigantamax)&&target.baseJapaneseName&&norm(target.baseJapaneseName)===guess));
  progress[regionId]=progress[regionId]||{};reviews[regionId]=reviews[regionId]||{};
  if(ok){
   correct++;delete reviews[regionId][target.progressId||target.id];
@@ -282,7 +327,7 @@ async function evaluate(fromShow=false){
 }
 function makeReviewRecord(p){
  return {name:p.jp||p.name,jp:p.jp||null,id:p.id,url:p.url||null,regionId:p.regionId||activeRegionId,
-  isRegionalForm:!!p.isRegionalForm,baseJapaneseName:p.baseJapaneseName||null,formLabel:p.formLabel||null,
+  isRegionalForm:!!p.isRegionalForm,isGigantamax:!!p.isGigantamax,baseJapaneseName:p.baseJapaneseName||null,formLabel:p.formLabel||null,
   progressId:p.progressId||p.id,nameKey:p.name||String(p.id)};
 }
 function renderReviews(){
